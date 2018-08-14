@@ -1,9 +1,8 @@
-#!/bin/bash
+#!/bin/sh
 # line:           V1.0
-# mail:           zhenggc@ipanel.cn
+# mail:           gczheng@139.com
 # data:           2018-08-06
-# script_name:    ipanel_redis_low_discovery.sh
-# Fucation:       redis low-level discovery
+# script_name:    redis_get_values.sh
 
 redis() {
             port=($(sudo netstat -tpln | awk -F "[ :]+" '/redis-serv*/ && /0.0.0.0/ {print $5}'))

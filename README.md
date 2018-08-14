@@ -5,8 +5,8 @@
 ### 1.1.1 redis_low_discovery.sh
 
 用于发现redis多实例
-```
-[root@redis02 homed]# cat /usr/local/zabbix/redis_low_discovery.sh 
+```bash
+[root@node02 zabbix]# cat /usr/local/zabbix/redis_low_discovery.sh
 #!/bin/bash
 # line:           V1.0
 # mail:           gczheng@139.com
@@ -55,16 +55,15 @@ sentinel() {
 }
 
 $1
-
-[root@redis02 homed]# 
+[root@node01 zabbix]#
 ```
 
 ### 1.1.2 redis_get_values.sh
 
 用于获取redis值
 
-```
-[root@redis02 ~]# vim /usr/local/zabbix/redis_get_values.sh
+```bash
+[root@node02 zabbix]# cat /usr/local/zabbix/redis_get_values.sh
 #!/bin/sh
 # line:           V1.0
 # mail:           gczheng@139.com
@@ -163,12 +162,13 @@ fi
 
 get_values
 
+
 ```
 
 # 二、授权zabbix使用netstat
 
 允许 `zabbix` 用户无密码运行 `netstat` 及 `Disable requiretty`
-```
+```bash
 [root@redis02 homed]# echo "zabbix ALL=(root) NOPASSWD:/bin/netstat">>/etc/sudoers
 [root@redis02 homed]# sed -i 's/^Defaults.*.requiretty/#Defaults    requiretty/' /etc/sudoers
 ```
@@ -178,9 +178,8 @@ get_values
 
 修改/etc/zabbix/zabbix_agentd.conf 
 
-```
-[root@redis02 homed]# grep -Ev "^$|^#" /etc/zabbix/zabbix_agentd.conf
-
+```bash
+[root@node02 homed]#  grep -Ev "^$|^#" /etc/zabbix/zabbix_agentd.conf
 PidFile=/var/run/zabbix/zabbix_agentd.pid
 LogFile=/var/log/zabbix/zabbix_agentd.log
 LogFileSize=0
@@ -196,18 +195,17 @@ UserParameter=redis_items[*],/bin/bash /usr/local/zabbix/redis_get_values.sh  -p
 UserParameter=sentinel_items[*],/bin/bash /usr/local/zabbix/redis_get_values.sh  -p $1 -k $2
 ```
 
-
 # 四、重启agent并尝试获取值
 
 重启zabbix-agent
-```
+```bash
 [root@redis02 homed]# systemctl restart zabbix-agent.service
 [root@redis02 homed]# systemctl status zabbix-agent.service
 ```
 
 zabbix server主机上用zabbix_get 获取值
 
-```
+```bash
 [root@node01 /]# zabbix_get -s 192.168.49.252 -k redis_discovery[redis]
 {
 	"data":[
@@ -258,14 +256,13 @@ slave
 [root@node01 ~]# zabbix_get -s 192.168.49.252 -p 10050  -k sentinel_items[7378,sentinel_nums]
 1
 
-
 ```
 
 # 五、导入模板
 
-导入zbx_export_templates，并连接监控主机
+* 导入zbx_export_templates，并连接监控主机
 
-图形展示
+
 ![](https://images2018.cnblogs.com/blog/1166598/201808/1166598-20180813180345136-1454421468.png)
 
 ![](https://images2018.cnblogs.com/blog/1166598/201808/1166598-20180813180434569-1293082620.png)
