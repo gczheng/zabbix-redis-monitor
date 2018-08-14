@@ -1,0 +1,251 @@
+<!doctype html>
+<html>
+<head>
+<meta charset='UTF-8'><meta name='viewport' content='width=device-width initial-scale=1'>
+<title>README</title></head>
+<body><h1>一、zabbix 自动发现并监控redis多实例</h1>
+<h2>1.1 编写脚本</h2>
+<h3>1.1.1 redis_low_discovery.sh</h3>
+<p>用于发现redis多实例</p>
+<pre><code class='language-bash' lang='bash'>[root@node02 zabbix]# cat /usr/local/zabbix/redis_low_discovery.sh
+#!/bin/bash
+# line:           V1.0
+# mail:           gczheng@139.com
+# data:           2018-08-06
+# script_name:    redis_low_discovery.sh
+# Fucation:       redis low-level discovery
+
+redis() {
+            port=($(sudo netstat -tpln | awk -F &quot;[ :]+&quot; &#39;/redis-serv*/ &amp;&amp; /0.0.0.0/ {print $5}&#39;))
+            printf &#39;{\n&#39;
+            printf &#39;\t&quot;data&quot;:[\n&#39;
+               for key in ${!port[@]}
+                   do
+                       if [[ &quot;${#port[@]}&quot; -gt 1 &amp;&amp; &quot;${key}&quot; -ne &quot;$((${#port[@]}-1))&quot; ]];then
+              socket=`ps aux|grep ${port[${key}]}|grep -v grep|awk -F &#39;=&#39; &#39;{print $10}&#39;|cut -d &#39; &#39; -f 1`
+                          printf &#39;\t {\n&#39;
+                          printf &quot;\t\t\t\&quot;{#REDISPORT}\&quot;:\&quot;${port[${key}]}\&quot;},\n&quot;
+                     else [[ &quot;${key}&quot; -eq &quot;((${#port[@]}-1))&quot; ]]
+              socket=`ps aux|grep ${port[${key}]}|grep -v grep|awk -F &#39;=&#39; &#39;{print $10}&#39;|cut -d &#39; &#39; -f 1`
+                          printf &#39;\t {\n&#39;
+                          printf &quot;\t\t\t\&quot;{#REDISPORT}\&quot;:\&quot;${port[${key}]}\&quot;}\n&quot;
+                       fi
+               done
+                          printf &#39;\t ]\n&#39;
+                          printf &#39;}\n&#39;
+}
+
+sentinel() {
+            port=($(sudo netstat -tpln | awk -F &quot;[ :]+&quot; &#39;/redis-sent*/ &amp;&amp; /0.0.0.0/ {print $5}&#39;))
+            printf &#39;{\n&#39;
+            printf &#39;\t&quot;data&quot;:[\n&#39;
+               for key in ${!port[@]}
+                   do
+                       if [[ &quot;${#port[@]}&quot; -gt 1 &amp;&amp; &quot;${key}&quot; -ne &quot;$((${#port[@]}-1))&quot; ]];then
+              socket=`ps aux|grep ${port[${key}]}|grep -v grep|awk -F &#39;=&#39; &#39;{print $10}&#39;|cut -d &#39; &#39; -f 1`
+                          printf &#39;\t {\n&#39;
+                          printf &quot;\t\t\t\&quot;{#REDISPORT}\&quot;:\&quot;${port[${key}]}\&quot;},\n&quot;
+                     else [[ &quot;${key}&quot; -eq &quot;((${#port[@]}-1))&quot; ]]
+              socket=`ps aux|grep ${port[${key}]}|grep -v grep|awk -F &#39;=&#39; &#39;{print $10}&#39;|cut -d &#39; &#39; -f 1`
+                          printf &#39;\t {\n&#39;
+                          printf &quot;\t\t\t\&quot;{#REDISPORT}\&quot;:\&quot;${port[${key}]}\&quot;}\n&quot;
+                       fi
+               done
+                          printf &#39;\t ]\n&#39;
+                          printf &#39;}\n&#39;
+}
+
+$1
+[root@node01 zabbix]#
+</code></pre>
+<h3>1.1.2 redis_get_values.sh</h3>
+<p>用于获取redis值</p>
+<pre><code class='language-bash' lang='bash'>[root@node02 zabbix]# cat /usr/local/zabbix/redis_get_values.sh
+#!/bin/sh
+# line:           V1.0
+# mail:           gczheng@139.com
+# data:           2018-08-06
+# script_name:    redis_get_values.sh
+
+REDIS_CLI=/homed/redis/bin/redis-cli.exe
+
+while getopts &quot;p:k:P:&quot; opt
+do
+        case $opt in
+                p ) redis_port=$OPTARG;;
+                k ) redis_info_key=$OPTARG;;
+                P ) redis_passwd=$OPTARG;;
+                ? )
+                echo &#39;参数错误!&#39;
+                exit 1;;
+        esac
+done
+
+#判断redis端口和info健值是否存在
+if [ ! &quot;${redis_port}&quot; ] || [ ! &quot;${redis_info_key}&quot; ];then
+        echo &quot;参数不存在&quot;        
+        exit 1
+fi
+
+function chk_result_status()
+{
+#判断result值是否存在
+if [ ! &quot;$result&quot; ] ;then
+        echo 0  
+else
+	echo $result
+fi
+}
+
+##判断是否使用密码远程登陆
+if [ &quot;${redis_passwd}&quot; ];then
+        REDIS_COMM=&quot;${REDIS_CLI} -a ${redis_passwd} -p ${redis_port} info&quot;
+else
+        REDIS_COMM=&quot;${REDIS_CLI} -p ${redis_port} info&quot;
+fi
+
+function get_values()
+{
+if [ &quot;master_link_status&quot; == &quot;${redis_info_key}&quot; ];then
+   	result=`$REDIS_COMM|/bin/grep -w &quot;master_link_status&quot;|awk -F&#39;:&#39; &#39;{print $2}&#39;|/bin/grep -c up`
+    chk_result_status 
+elif [ &quot;role&quot; == &quot;${redis_info_key}&quot; ];then
+    result=`$REDIS_COMM|/bin/grep -w &quot;role&quot;|awk -F&#39;:&#39; &#39;{print $2}&#39;|/bin/grep -c master`
+    chk_result_status 
+elif [ &quot;rdb_last_bgsave_status&quot; == &quot;${redis_info_key}&quot; ];then
+    result=`$REDIS_COMM|/bin/grep -w &quot;rdb_last_bgsave_status&quot; | awk -F&#39;:&#39; &#39;{print $2}&#39; | /bin/grep -c ok`
+    chk_result_status 
+elif [ &quot;aof_last_bgrewrite_status&quot; == &quot;${redis_info_key}&quot; ];then
+    result=`$REDIS_COMM|/bin/grep -w &quot;aof_last_bgrewrite_status&quot; | awk -F&#39;:&#39; &#39;{print $2}&#39; | /bin/grep -c ok`
+    chk_result_status 
+elif [ `echo &quot;${redis_info_key}&quot; |egrep -cw &#39;dict_keys|dict_expires|intdict_keysi|intdict_expires|sentinel_status|sentinel_slaves|sentinel_nums&#39;` == &quot;1&quot; ];then
+	#cn=`echo &quot;${redis_info_key}&quot; |awk -F &quot;,&quot; &#39;{print $2}&#39;`
+	cn=`echo &quot;${redis_info_key}&quot;`
+	case $cn in
+	dict_keys)
+		result=`$REDIS_COMM| /bin/grep -w &quot;db0&quot;|/bin/grep -w &quot;dict&quot;|/bin/grep -w &quot;keys&quot; | awk -F&#39;=|,&#39; &#39;{print $3}&#39;`
+                chk_result_status 
+	        ;;
+	 dict_expires)
+	        result=`$REDIS_COMM| /bin/grep -w &quot;db0&quot;|/bin/grep -w &quot;dict&quot;|/bin/grep -w &quot;expires&quot; | awk -F&#39;=|,&#39; &#39;{print $5}&#39;`
+	        chk_result_status 
+	        ;;
+	 intdict_keys)
+	        result=`$REDIS_COMM|/bin/grep -w &quot;db0&quot;|/bin/grep -w &quot;intdict&quot; |/bin/grep -w &quot;keys&quot; | awk -F&#39;=|,&#39; &#39;{print $3}&#39;`
+	        chk_result_status 
+	        ;;
+         intdict_expires)     
+           	result=`$REDIS_COMM|/bin/grep -w &quot;db0&quot;|/bin/grep -w &quot;intdict&quot; |/bin/grep -w &quot;expites&quot; | awk -F&#39;=|,&#39; &#39;{print $5}&#39;`
+                chk_result_status 
+                ;;
+          sentinel_status)     
+           	result=`$REDIS_COMM|/bin/grep -w &quot;master0&quot;|awk -F&#39;=|,&#39; &#39;{print $4}&#39;| /bin/grep -c ok`
+                chk_result_status 
+                ;;
+          sentinel_slaves)     
+           	result=`$REDIS_COMM|/bin/grep -w &quot;master0&quot;|awk -F&#39;=|,&#39; &#39;{print $8}&#39;`
+                chk_result_status 
+                ;;
+          sentinel_nums)     
+           	result=`$REDIS_COMM|/bin/grep -w &quot;master0&quot;|awk -F&#39;=|,&#39; &#39;{print $10}&#39;`
+                chk_result_status 
+                ;;
+	esac
+else
+    result=`$REDIS_COMM|/bin/grep -w  &quot;${redis_info_key}&quot;|cut -d: -f2`
+    chk_result_status 
+fi
+}
+
+get_values
+
+
+</code></pre>
+<h1>二、授权zabbix使用netstat</h1>
+<p>允许 <code>zabbix</code> 用户无密码运行 <code>netstat</code> 及 <code>Disable requiretty</code></p>
+<pre><code class='language-bash' lang='bash'>[root@redis02 homed]# echo &quot;zabbix ALL=(root) NOPASSWD:/bin/netstat&quot;&gt;&gt;/etc/sudoers
+[root@redis02 homed]# sed -i &#39;s/^Defaults.*.requiretty/#Defaults    requiretty/&#39; /etc/sudoers
+</code></pre>
+<h1>三、配置zabbix UserParameter</h1>
+<p>修改/etc/zabbix/zabbix_agentd.conf </p>
+<pre><code class='language-bash' lang='bash'>[root@node02 homed]#  grep -Ev &quot;^$|^#&quot; /etc/zabbix/zabbix_agentd.conf
+PidFile=/var/run/zabbix/zabbix_agentd.pid
+LogFile=/var/log/zabbix/zabbix_agentd.log
+LogFileSize=0
+Server=192.168.49.245
+ServerActive=127.0.0.1
+Hostname=Zabbix server
+Include=/etc/zabbix/zabbix_agentd.d/*.conf
+
+#添加以下内容
+UnsafeUserParameters=1
+UserParameter=redis_discovery[*],/bin/bash /usr/local/zabbix/redis_low_discovery.sh $1
+UserParameter=redis_items[*],/bin/bash /usr/local/zabbix/redis_get_values.sh  -p $1 -k $2
+UserParameter=sentinel_items[*],/bin/bash /usr/local/zabbix/redis_get_values.sh  -p $1 -k $2
+</code></pre>
+<h1>四、重启agent并尝试获取值</h1>
+<p>重启zabbix-agent</p>
+<pre><code class='language-bash' lang='bash'>[root@redis02 homed]# systemctl restart zabbix-agent.service
+[root@redis02 homed]# systemctl status zabbix-agent.service
+</code></pre>
+<p>zabbix server主机上用zabbix_get 获取值</p>
+<pre><code class='language-bash' lang='bash'>[root@node01 /]# zabbix_get -s 192.168.49.252 -k redis_discovery[redis]
+{
+	&quot;data&quot;:[
+	 {
+			&quot;{#REDISPORT}&quot;:&quot;17035&quot;},
+	 {
+			&quot;{#REDISPORT}&quot;:&quot;6379&quot;},
+	 {
+			&quot;{#REDISPORT}&quot;:&quot;13135&quot;},
+	 {
+			&quot;{#REDISPORT}&quot;:&quot;7379&quot;},
+	 {
+			&quot;{#REDISPORT}&quot;:&quot;11835&quot;},
+	 {
+			&quot;{#REDISPORT}&quot;:&quot;12635&quot;},
+	 {
+			&quot;{#REDISPORT}&quot;:&quot;13635&quot;}
+	 ]
+}
+[root@node01 /]# zabbix_get -s 192.168.49.252 -k redis_discovery[sentinel]
+{
+	&quot;data&quot;:[
+	 {
+			&quot;{#REDISPORT}&quot;:&quot;17034&quot;},
+	 {
+			&quot;{#REDISPORT}&quot;:&quot;13134&quot;},
+	 {
+			&quot;{#REDISPORT}&quot;:&quot;7378&quot;},
+	 {
+			&quot;{#REDISPORT}&quot;:&quot;11834&quot;},
+	 {
+			&quot;{#REDISPORT}&quot;:&quot;12634&quot;},
+	 {
+			&quot;{#REDISPORT}&quot;:&quot;13634&quot;}
+	 ]
+}
+
+
+[root@node01 ~]#  zabbix_get -s 192.168.49.252 -p 10050  -k redis_items[7379,role]
+slave
+
+[root@node01 ~]# zabbix_get -s 192.168.49.252 -p 10050  -k redis_items[7379,uptime_in_seconds]
+173728
+
+[root@node01 ~]# zabbix_get -s 192.168.49.252 -p 10050  -k sentinel_items[7378,sentinel_status]
+0
+
+[root@node01 ~]# zabbix_get -s 192.168.49.252 -p 10050  -k sentinel_items[7378,sentinel_nums]
+1
+
+
+</code></pre>
+<h1>五、导入模板</h1>
+<p>导入zbx_export_templates，并连接监控主机</p>
+<p>图形展示
+<img src='https://images2018.cnblogs.com/blog/1166598/201808/1166598-20180813180345136-1454421468.png' alt='' referrerPolicy='no-referrer' /></p>
+<p><img src='https://images2018.cnblogs.com/blog/1166598/201808/1166598-20180813180434569-1293082620.png' alt='' referrerPolicy='no-referrer' /></p>
+<p>&nbsp;</p>
+</body>
+</html>
